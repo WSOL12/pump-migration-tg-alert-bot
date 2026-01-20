@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { Config } from '../utils/config';
 import { MigrationTransaction, TokenData, AlertMessage } from '../types';
+import { JupiterTokenData } from '../detectors/migration';
 
 export class TelegramBotHandler {
   private bot: TelegramBot;
@@ -64,9 +65,10 @@ export class TelegramBotHandler {
 
   async sendMigrationAlert(
     migration: MigrationTransaction,
-    tokenData: TokenData
+    tokenData: TokenData,
+    jupiterData?: JupiterTokenData | null
   ): Promise<void> {
-    const message = this.formatAlertMessage(migration, tokenData);
+    const message = this.formatAlertMessage(migration, tokenData, jupiterData);
 
     // Send to all subscribed users (text only, no chart image)
     const promises = Array.from(this.subscribedUsers).map(async (chatId) => {
@@ -85,20 +87,54 @@ export class TelegramBotHandler {
 
   private formatAlertMessage(
     migration: MigrationTransaction,
-    tokenData: TokenData
+    tokenData: TokenData,
+    jupiterData?: JupiterTokenData | null
   ): AlertMessage {
-    const text = `
+    let text = `
 🚀 <b>Pump.fun Migration Alert!</b>
 
 📊 <b>Token:</b> ${tokenData.name} (${tokenData.symbol})
 📍 <b>Contract:</b> <code>${migration.tokenMint}</code>
-
-🔗 <a href="${migration.transactionUrl}">View Transaction on Solscan</a>
-
-⏰ Migration detected at ${new Date(migration.timestamp).toLocaleString()}
     `.trim();
 
+    // Add organic score and metrics if available
+    if (jupiterData) {
+      const organicScore = jupiterData.organicScore?.toFixed(2) || 'N/A';
+      const organicScoreLabel = jupiterData.organicScoreLabel || 'N/A';
+      const scoreEmoji = this.getScoreEmoji(jupiterData.organicScoreLabel);
+      
+      text += `\n\n${scoreEmoji} <b>Organic Score:</b> ${organicScore} (${organicScoreLabel})`;
+      
+      if (jupiterData.mcap) {
+        text += `\n💰 <b>Market Cap:</b> $${jupiterData.mcap.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      }
+      
+      if (jupiterData.liquidity) {
+        text += `\n💧 <b>Liquidity:</b> $${jupiterData.liquidity.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      }
+      
+      if (jupiterData.holderCount) {
+        text += `\n👥 <b>Holders:</b> ${jupiterData.holderCount.toLocaleString()}`;
+      }
+    }
+
+    text += `\n\n🔗 <a href="${migration.transactionUrl}">View Transaction on Solscan</a>`;
+    text += `\n\n⏰ Migration detected at ${new Date(migration.timestamp).toLocaleString()}`;
+
     return { text };
+  }
+
+  private getScoreEmoji(scoreLabel?: string): string {
+    switch (scoreLabel?.toLowerCase()) {
+      case 'high':
+        return '🟢';
+      case 'medium':
+        return '🟡';
+      case 'low':
+        return '🔴';
+      default:
+        return '📊';
+    }
   }
 
   getSubscribedUsers(): number[] {

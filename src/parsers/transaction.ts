@@ -46,6 +46,19 @@ export class TransactionParser {
       typeof key === 'string' ? key : key.pubkey.toString()
     );
 
+    // For pump.fun migrations, prioritize addresses ending with "pump"
+    // Look for pump addresses first
+    for (const account of accountKeys) {
+      if (typeof account === 'string' && account.endsWith('pump') && account.length === 44) {
+        try {
+          new PublicKey(account);
+          return account;
+        } catch {
+          // Not a valid public key
+        }
+      }
+    }
+
     // Try to find token mint in instructions
     for (const ix of instructions) {
       if ('parsed' in ix && ix.parsed) {
@@ -57,15 +70,13 @@ export class TransactionParser {
         }
       }
 
-      // Check accounts array in instruction
+      // Check accounts array in instruction for pump addresses
       if ('accounts' in ix && Array.isArray(ix.accounts)) {
         for (const accountIndex of ix.accounts) {
-          // accountIndex is a number (array index), not a PublicKey
           const index = typeof accountIndex === 'number' ? accountIndex : parseInt(accountIndex.toString());
           if (index >= 0 && index < accountKeys.length) {
             const account = accountKeys[index];
-            if (account && typeof account === 'string' && account.length === 44) {
-              // Validate it's a valid public key
+            if (account && typeof account === 'string' && account.endsWith('pump') && account.length === 44) {
               try {
                 new PublicKey(account);
                 return account;
@@ -78,14 +89,18 @@ export class TransactionParser {
       }
     }
 
-    // Fallback: look for token mint in account keys
-    // Token mints are typically in specific positions, but this is heuristic
+    // Fallback: look for token mint in account keys (skip known program addresses)
+    const knownPrograms = [
+      '11111111111111111111111111111111',
+      'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+      'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+      'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+    ];
+
     for (const account of accountKeys) {
-      if (typeof account === 'string' && account.length === 44) {
+      if (typeof account === 'string' && account.length === 44 && !knownPrograms.includes(account)) {
         try {
           new PublicKey(account);
-          // This is a potential mint, but we'd need more context
-          // For now, return the first valid-looking address
           return account;
         } catch {
           // Not a valid public key

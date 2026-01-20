@@ -36,13 +36,11 @@ async function main() {
   let isProcessingQueue = false;
 
   // Helper function to check if logs indicate a potential migration
+  // Only check for the specific "Instruction: Migrate" log, not fee collection or other migrate-related instructions
   function hasMigrationIndicators(logs: string[]): boolean {
     if (!logs || !Array.isArray(logs)) return false;
-    const logText = logs.join(' ').toLowerCase();
-    return logText.includes('migrate') || 
-           logText.includes('migration') ||
-           (logText.includes('burn') && logText.includes('lp')) ||
-           logText.includes('pump.fun: migration');
+    // Only detect the actual migration instruction, not MigrateBondingCurveCreator or CollectCreatorFee
+    return logs.some(log => log.includes('Instruction: Migrate'));
   }
 
   // Process pending fetches with rate limiting
@@ -137,6 +135,23 @@ async function main() {
 
       console.log(`\n💰 Token Mint: ${migration.tokenMint}`);
 
+      // Fetch organic score from Jupiter API
+      const jupiterData = await migrationDetector.fetchTokenOrganicScore(migration.tokenMint);
+      if (jupiterData) {
+        console.log(`📊 Organic Score: ${jupiterData.organicScore?.toFixed(2) || 'N/A'} (${jupiterData.organicScoreLabel || 'N/A'})`);
+        if (jupiterData.mcap) {
+          console.log(`💰 Market Cap: $${jupiterData.mcap.toLocaleString()}`);
+        }
+        if (jupiterData.liquidity) {
+          console.log(`💧 Liquidity: $${jupiterData.liquidity.toLocaleString()}`);
+        }
+        if (jupiterData.holderCount) {
+          console.log(`👥 Holders: ${jupiterData.holderCount}`);
+        }
+      } else {
+        console.warn('⚠️  Could not fetch organic score from Jupiter API');
+      }
+
       // Fetch token data
       const tokenData = await tokenDataFetcher.fetchTokenData(migration.tokenMint);
 
@@ -149,7 +164,7 @@ async function main() {
           name: 'Unknown Token',
           symbol: 'UNKNOWN',
           decimals: 9,
-        });
+        }, jupiterData);
         console.log('✅ Alert sent!');
         console.log('========================================\n');
         return;
@@ -163,8 +178,8 @@ async function main() {
       console.log(`📤 Sending alert...`);
       console.log('========================================\n');
 
-      // Send Telegram alert
-      await telegramBot.sendMigrationAlert(migration, tokenData);
+      // Send Telegram alert with Jupiter data
+      await telegramBot.sendMigrationAlert(migration, tokenData, jupiterData);
 
       // Clean up old processed signatures (keep last 1000)
       if (processedSignatures.size > 1000) {
